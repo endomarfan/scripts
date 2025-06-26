@@ -11,9 +11,11 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# Проверка доступности BBR
-if ! sysctl net.ipv4.tcp_available_congestion_control | grep -q bbr; then
-  echo -e "\033[1;31m❌ Ядро не поддерживает BBR. Установка невозможна.\033[0m"
+# Проверка поддержки BBR через modinfo
+if ! modinfo tcp_bbr &>/dev/null; then
+  echo -e "\033[1;31m❌ Ядро не содержит модуль BBR (tcp_bbr).\033[0m"
+  echo -e "🛠 Установи полноценное ядро: \033[1;33msudo apt install linux-image-amd64\033[0m"
+  echo -e "🔁 И затем перезагрузи систему: \033[1;33msudo reboot\033[0m"
   exit 1
 fi
 
@@ -33,18 +35,18 @@ if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
   exit 0
 fi
 
-# Загрузка модуля BBR
+# Пробуем загрузить модуль
 if ! lsmod | grep -q bbr; then
   modprobe tcp_bbr && echo "✅ Модуль tcp_bbr загружен"
 else
   echo "✅ Модуль tcp_bbr уже активен"
 fi
 
-# Резервная копия
+# Бэкап sysctl.conf
 cp /etc/sysctl.conf /etc/sysctl.conf.bak_$(date +%s)
 echo "🗄️  Резервная копия sysctl.conf создана"
 
-# Добавляем строки, если их нет
+# Добавление настроек, если ещё не добавлены
 if ! grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
   {
     echo ""
