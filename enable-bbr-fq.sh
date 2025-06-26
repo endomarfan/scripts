@@ -1,0 +1,73 @@
+#!/bin/bash
+
+clear
+echo -e "\033[1;36m⚙️  Установка BBR + FQ для оптимизации TCP\033[0m"
+echo -e "📶 Улучшает скорость и стабильность TCP-соединений (сайты, VPN, SSH)"
+echo
+
+# Проверка root
+if [[ $EUID -ne 0 ]]; then
+  echo -e "\033[1;31m🚫 Пожалуйста, запусти скрипт с правами root (sudo)\033[0m"
+  exit 1
+fi
+
+# Проверка доступности BBR
+if ! sysctl net.ipv4.tcp_available_congestion_control | grep -q bbr; then
+  echo -e "\033[1;31m❌ Ядро не поддерживает BBR. Установка невозможна.\033[0m"
+  exit 1
+fi
+
+# Проверка текущего алгоритма
+CURRENT_ALGO=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+if [[ "$CURRENT_ALGO" == "bbr" ]]; then
+  echo -e "✅ BBR уже включён: \033[1;32m$CURRENT_ALGO\033[0m"
+  exit 0
+fi
+
+echo -e "🚀 Текущий алгоритм: \033[1;33m$CURRENT_ALGO\033[0m"
+echo -e "\033[1;34m➡️  Продолжить установку BBR + FQ? (y/n): \033[0m"
+read -r confirm
+
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+  echo "❌ Установка отменена."
+  exit 0
+fi
+
+# Загрузка модуля BBR
+if ! lsmod | grep -q bbr; then
+  modprobe tcp_bbr && echo "✅ Модуль tcp_bbr загружен"
+else
+  echo "✅ Модуль tcp_bbr уже активен"
+fi
+
+# Резервная копия
+cp /etc/sysctl.conf /etc/sysctl.conf.bak_$(date +%s)
+echo "🗄️  Резервная копия sysctl.conf создана"
+
+# Добавляем строки, если их нет
+if ! grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf; then
+  {
+    echo ""
+    echo "# --- BBR + FQ Optimization ---"
+    echo "net.core.default_qdisc=fq"
+    echo "net.ipv4.tcp_congestion_control=bbr"
+    echo "net.core.rmem_default=262144"
+    echo "net.core.rmem_max=4194304"
+    echo "net.core.wmem_default=262144"
+    echo "net.core.wmem_max=4194304"
+  } >> /etc/sysctl.conf
+fi
+
+# Применяем настройки
+echo "🔄 Применяем настройки..."
+sysctl -p
+
+# Проверка результата
+NEW_ALGO=$(sysctl -n net.ipv4.tcp_congestion_control)
+if [[ "$NEW_ALGO" == "bbr" ]]; then
+  echo -e "\033[1;32m✅ BBR успешно включён\033[0m"
+else
+  echo -e "\033[1;31m⚠️  Не удалось включить BBR. Текущий алгоритм: $NEW_ALGO\033[0m"
+fi
+
+exit 0
